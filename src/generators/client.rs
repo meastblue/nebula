@@ -1,21 +1,19 @@
-use crate::utils::file;
+use crate::utils::{errors::Error, file::FileUtils};
 
-use colored::*;
+pub struct ClientGenerator;
 
-pub fn generate(project_dir: &str) {
-    // Exemple : Créer un fichier de composant
-    let component = r#"
-    // Composant généré par Nebula
-    fn main() {
-        println!("Hello, world!");
+impl ClientGenerator {
+    pub fn generate(project_dir: &str) -> Result<(), Error> {
+        let client_dir = format!("{}/client", project_dir);
+        let component = r#"
+        // Composant généré par Nebula
+        fn main() {
+            println!("Hello, world!");
+        }
+        "#;
+
+        FileUtils::create_file_in_dir(&client_dir, "component.rs", component)?;
+        println!("Client généré avec succès !");
+        Ok(())
     }
-    "#;
-
-    let client_dir = format!("{}/client", project_dir);
-    if let Err(err) = file::create_file_in_dir(&client_dir, "component.rs", component) {
-        println!("{}", err.red());
-        return;
-    }
-
-    println!("{}", "Client généré avec succès !".green());
 }

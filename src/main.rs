@@ -6,14 +6,17 @@ mod utils;
 
 use clap::Parser;
 use cli::Cli;
+use commands::{generate::GenerateCommand, new::NewCommand};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse les arguments de la ligne de commande
     let cli = Cli::parse();
 
     // Exécute la commande appropriée
     match cli.command {
-        cli::Commands::New(args) => commands::new::run(args),
-        cli::Commands::Generate(args) => commands::generate::run(args),
+        cli::Commands::New(args) => NewCommand::run(args)?,
+        cli::Commands::Generate(args) => GenerateCommand::run(args)?,
     }
+
+    Ok(())
 }

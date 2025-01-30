@@ -1,20 +1,30 @@
-use std::fmt;
+use inquire::error::InquireError;
+use thiserror::Error;
+use toml::de::Error as TomlError;
 
-#[derive(Debug)]
-pub enum NebulaError {
-    IoError(std::io::Error),
-}
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("File system error: {0}")]
+    FileSystem(#[from] std::io::Error),
 
-impl fmt::Display for NebulaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NebulaError::IoError(err) => write!(f, "Erreur d'entrée/sortie : {}", err),
-        }
-    }
-}
+    #[error("Invalid option: {0}")]
+    InvalidOptions(String),
 
-impl From<std::io::Error> for NebulaError {
-    fn from(err: std::io::Error) -> Self {
-        NebulaError::IoError(err)
-    }
+    #[error("Invalid configuration: {0}")]
+    InquireError(#[from] InquireError),
+
+    #[error("TOML parsing error: {0}")]
+    TomlParse(#[from] TomlError),
+
+    #[error("Prompt error: {0}")]
+    Prompt(String),
+
+    #[error("Migration error: {0}")]
+    Migration(String),
+
+    #[error("The element '{0}' already exists at the specified location.")]
+    ElementAlreadyExists(String),
+
+    #[error("The generation of this element is not implemented yet.")]
+    NotImplementedError(String),
 }

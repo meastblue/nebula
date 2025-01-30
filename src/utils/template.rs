@@ -1,19 +1,22 @@
-use std::path::PathBuf;
+use super::errors::Error;
 use toml::Value;
 
-pub fn load_template(template_path: &str) -> Result<String, String> {
-    let mut path = PathBuf::from(std::env::current_dir().map_err(|e| e.to_string())?);
-    path.push(template_path);
+pub struct TemplateUtils;
 
-    let template = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let template: Value = toml::from_str(&template).map_err(|e| e.to_string())?;
-    Ok(template["content"].as_str().unwrap().to_string())
-}
-
-pub fn replace_placeholders(template: &str, replacements: &[(&str, &str)]) -> String {
-    let mut content = template.to_string();
-    for (placeholder, value) in replacements {
-        content = content.replace(&format!("{{{{{}}}}}", placeholder), value);
+impl TemplateUtils {
+    /// Charge un template TOML et retourne son contenu
+    pub fn load_template(template_path: &str) -> Result<String, Error> {
+        let template = std::fs::read_to_string(template_path)?;
+        let template: Value = toml::from_str(&template)?;
+        Ok(template["content"].as_str().unwrap_or("").to_string())
     }
-    content
+
+    /// Remplace les placeholders dans un template
+    pub fn replace_placeholders(template: &str, replacements: &[(&str, &str)]) -> String {
+        let mut content = template.to_string();
+        for (placeholder, value) in replacements {
+            content = content.replace(&format!("{{{{{}}}}}", placeholder), value);
+        }
+        content
+    }
 }

@@ -1,24 +1,16 @@
-use crate::utils::{file, template};
-use colored::*;
+use crate::utils::{errors::Error, file::FileUtils, template::TemplateUtils};
 
-pub fn generate(server_dir: &str) {
-    let template_path = "src/templates/server/resolver.toml";
+pub struct ResolverGenerator;
 
-    let template = match template::load_template(template_path) {
-        Ok(template) => template,
-        Err(err) => {
-            println!("{}", err.red());
-            return;
-        }
-    };
+impl ResolverGenerator {
+    pub fn generate(server_dir: &str) -> Result<(), Error> {
+        let template_path = "src/templates/server/resolver.toml";
+        let template = TemplateUtils::load_template(template_path)?;
+        let content = TemplateUtils::replace_placeholders(&template, &[]);
 
-    let content = template::replace_placeholders(&template, &[]);
-
-    let file_path = format!("{}/resolver.rs", server_dir);
-    if let Err(err) = file::write_file(&file_path, &content) {
-        println!("{}", err.red());
-        return;
+        let file_path = format!("{}/resolver.rs", server_dir);
+        FileUtils::write_file(&file_path, &content)?;
+        println!("Resolver généré avec succès !");
+        Ok(())
     }
-
-    println!("{}", "Resolver généré avec succès !".green());
 }

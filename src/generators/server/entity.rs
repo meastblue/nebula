@@ -1,26 +1,20 @@
 use crate::types::DatabaseType;
-use crate::utils::{file, template};
-use colored::*;
+use crate::utils::{errors::Error, file::FileUtils, template::TemplateUtils};
 
-pub fn generate(server_dir: &str, database: &DatabaseType) {
-    let template_path = "src/templates/server/entity.toml";
+pub struct EntityGenerator;
 
-    let template = match template::load_template(template_path) {
-        Ok(template) => template,
-        Err(err) => {
-            println!("{}", err.red());
-            return;
-        }
-    };
+impl EntityGenerator {
+    pub fn generate(server_dir: &str, database: &DatabaseType) -> Result<(), Error> {
+        let template_path = "src/templates/server/entity.toml";
+        let template = TemplateUtils::load_template(template_path)?;
+        let content = TemplateUtils::replace_placeholders(
+            &template,
+            &[("database", &format!("{:?}", database))],
+        );
 
-    let content =
-        template::replace_placeholders(&template, &[("database", &format!("{:?}", database))]);
-
-    let file_path = format!("{}/entity.rs", server_dir);
-    if let Err(err) = file::write_file(&file_path, &content) {
-        println!("{}", err.red());
-        return;
+        let file_path = format!("{}/entity.rs", server_dir);
+        FileUtils::write_file(&file_path, &content)?;
+        println!("Entité générée avec succès !");
+        Ok(())
     }
-
-    println!("{}", "Entité générée avec succès !".green());
 }

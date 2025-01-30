@@ -1,54 +1,58 @@
-use std::str::FromStr;
-
 use crate::cli::NewArgs;
-use crate::generators::{client, server};
-use crate::types::{DatabaseType, ProjectType, ServerType};
-use crate::utils::{file, prompt};
-use colored::*;
+use crate::generators::{client::ClientGenerator, server::ServerGenerator};
+use crate::types::ProjectType;
+use crate::utils::{errors::Error, file::FileUtils, prompt::Prompt};
 
-pub fn run(args: NewArgs) {
-    let project_name = args.name;
+pub struct NewCommand;
 
-    let project_type = match args.project_type {
-        Some(project_type) => project_type,
-        None => ProjectType::from_str(&prompt::ask_project_type()).unwrap_or_else(|_| {
-            println!("{}", "Erreur : Type de projet invalide.".red());
-            std::process::exit(1);
-        }),
-    };
+impl NewCommand {
+    pub fn run(args: NewArgs) -> Result<(), Error> {
+        // Utilise le nom du projet fourni en ligne de commande
+        let project_name = args.name;
 
-    let database = if project_type != ProjectType::Client {
-        match args.database {
-            Some(database) => Some(database),
-            None => prompt::ask_database_type(),
+        // Demande le type de projet si non fourni
+        let project_type = match args.project_type {
+            Some(project_type) => project_type,
+            None => Prompt::ask_project_type()?,
+        };
+
+        // Demande le type de base de données si non fourni et si applicable
+        let database = if project_type != ProjectType::Client {
+            match args.database {
+                Some(database) => Some(database),
+                None => Prompt::ask_database_type()?,
+            }
+        } else {
+            None
+        };
+
+        // Demande le type de serveur si non fourni et si applicable
+        let server_type = if project_type != ProjectType::Client {
+            match args.server_type {
+                Some(server_type) => Some(server_type),
+                None => Prompt::ask_server_type()?,
+            }
+        } else {
+            None
+        };
+
+        // Crée le dossier du projet
+        let project_dir = format!("./{}", project_name);
+        FileUtils::create_dir_if_not_exists(&project_dir)?;
+
+        // Génère les fichiers en fonction du type de projet
+        match project_type {
+            ProjectType::Client => ClientGenerator::generate(&project_dir)?,
+            ProjectType::Server => {
+                ServerGenerator::generate(&project_dir, &database, &server_type)?
+            }
+            ProjectType::Fullstack => {
+                ClientGenerator::generate(&project_dir)?;
+                ServerGenerator::generate(&project_dir, &database, &server_type)?;
+            }
         }
-    } else {
-        None
-    };
 
-    let server_type = if project_type != ProjectType::Client {
-        match args.server_type {
-            Some(server_type) => Some(server_type),
-            None => prompt::ask_server_type(),
-        }
-    } else {
-        None
-    };
-
-    let project_dir = format!("./{}", project_name);
-    if let Err(err) = file::create_dir_if_not_exists(&project_dir) {
-        println!("{}", err.red());
-        return;
+        println!("Projet créé avec succès !");
+        Ok(())
     }
-
-    match project_type {
-        ProjectType::Client => client::generate(&project_dir),
-        ProjectType::Server => server::generate(&project_dir, &database, &server_type),
-        ProjectType::Fullstack => {
-            client::generate(&project_dir);
-            server::generate(&project_dir, &database, &server_type);
-        }
-    }
-
-    println!("{}", "Projet créé avec succès !".green());
 }

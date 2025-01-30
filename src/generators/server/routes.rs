@@ -1,24 +1,16 @@
-use crate::utils::{file, template};
-use colored::*;
+use crate::utils::{errors::Error, file::FileUtils, template::TemplateUtils};
 
-pub fn generate(server_dir: &str) {
-    let template_path = "src/templates/server/routes.toml";
+pub struct RoutesGenerator;
 
-    let template = match template::load_template(template_path) {
-        Ok(template) => template,
-        Err(err) => {
-            println!("{}", err.red());
-            return;
-        }
-    };
+impl RoutesGenerator {
+    pub fn generate(server_dir: &str) -> Result<(), Error> {
+        let template_path = "src/templates/server/routes.toml";
+        let template = TemplateUtils::load_template(template_path)?;
+        let content = TemplateUtils::replace_placeholders(&template, &[]);
 
-    let content = template::replace_placeholders(&template, &[]);
-
-    let file_path = format!("{}/routes.rs", server_dir);
-    if let Err(err) = file::write_file(&file_path, &content) {
-        println!("{}", err.red());
-        return;
+        let file_path = format!("{}/routes.rs", server_dir);
+        FileUtils::write_file(&file_path, &content)?;
+        println!("Routes générées avec succès !");
+        Ok(())
     }
-
-    println!("{}", "Routes générées avec succès !".green());
 }
