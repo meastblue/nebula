@@ -1,0 +1,8 @@
+content = """
+// Migration générée par Nebula pour {{database}}
+use diesel::prelude::*;
+
+pub fn {{name}}(conn: &PgConnection) {
+    // Implémentez votre migration ici
+}
+"""

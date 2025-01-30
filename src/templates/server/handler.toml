@@ -1,0 +1,8 @@
+content = """
+// Handler généré par Nebula
+use actix_web::{web, HttpResponse};
+
+pub async fn {{name}}() -> HttpResponse {
+    HttpResponse::Ok().body("Hello, {{name}}!")
+}
+"""

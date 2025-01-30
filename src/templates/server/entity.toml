@@ -1,0 +1,8 @@
+content = """
+// Entité générée par Nebula pour {{database}}
+#[derive(Debug)]
+pub struct {{name}} {
+    id: i32,
+    name: String,
+}
+"""
