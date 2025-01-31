@@ -1,0 +1,29 @@
+content = '''
+use std::env;
+use std::net::SocketAddr;
+
+use axum::{routing::get, Router};
+use tokio::net::TcpListener;
+
+use crate::route;
+use crate::middleware;
+
+pub struct Server;
+
+impl Server {
+    async fn run() {
+        let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let port: u16 = env::var("SERVER_PORT")
+            .unwrap_or_else(|_| "3000".to_string())
+            .parse()
+            .expect("SERVER_PORT doit être un entier valide");
+        let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
+        let routes = route::configure();
+        let listener = TcpListener::bind(addr).await?;
+            
+        println!("🚀 Serveur lancé sur http://{}", addr);
+        axum::serve(listener, routes).await?;
+        Ok(())
+    }
+}
+'''
