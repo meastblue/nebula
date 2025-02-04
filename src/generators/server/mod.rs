@@ -5,53 +5,44 @@ pub mod resolver;
 pub mod routes;
 
 use std::path::Path;
+use std::process::Command;
 
-use crate::types::{DatabaseType, ServerType};
+use crate::utils::errors::Error;
 use crate::utils::file::init_file_from_template;
-use crate::utils::template;
-use crate::utils::{errors::Error, file};
 
 pub struct ServerGenerator {
     project_dir: String,
-    database: Option<DatabaseType>,
-    server_type: Option<ServerType>,
 }
 
 impl ServerGenerator {
-    pub fn new(
-        project_dir: String,
-        database: Option<DatabaseType>,
-        server_type: Option<ServerType>,
-    ) -> Self {
+    pub fn new(project_dir: &str) -> Self {
         Self {
             project_dir: project_dir.to_owned(),
-            database,
-            server_type,
         }
     }
 
     pub fn generate(&self) -> Result<(), Error> {
+        self.init_cargo_project()?;
         self.init_cargo()?;
         self.init_main()?;
         self.init_server()?;
         self.init_route()?;
-        // if let Some(database) = database {
-        //     entity::EntityGenerator::generate(project_dir, database)?;
-        //     migration::MigrationGenerator::generate(project_dir, database)?;
-        // }
 
-        // if let Some(server_type) = server_type {
-        //     match server_type {
-        //         ServerType::Rest => {
-        //             handler::HandlerGenerator::generate(project_dir)?;
-        //             routes::RoutesGenerator::generate(project_dir)?;
-        //         }
-        //         ServerType::GraphQL => {
-        //             resolver::ResolverGenerator::generate(project_dir)?;
-        //             routes::RoutesGenerator::generate(project_dir)?;
-        //         }
-        //     }
-        // }
+        Ok(())
+    }
+
+    fn init_cargo_project(&self) -> Result<(), Error> {
+        let status = Command::new("cargo")
+            .arg("init")
+            .arg(&self.project_dir)
+            .status()
+            .map_err(|e| Error::FileSystem(e))?;
+
+        if !status.success() {
+            return Err(Error::Prompt(
+                "Échec de l'initialisation du projet Cargo".to_string(),
+            ));
+        }
 
         Ok(())
     }

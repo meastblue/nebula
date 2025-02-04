@@ -4,34 +4,14 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProjectType {
+    #[clap(alias = "client")]
     Client,
 
-    #[clap(alias = "api")]
+    #[clap(alias = "server")]
     Server,
 
     #[clap(alias = "full")]
-    Fullstack,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum DatabaseType {
-    #[clap(alias = "mysql")]
-    MySQL,
-
-    #[clap(alias = "postgres")]
-    PostgreSQL,
-
-    #[clap(alias = "maria")]
-    MariaDB,
-
-    #[clap(alias = "mongo")]
-    MongoDB,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum ServerType {
-    Rest,
-    GraphQL,
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
@@ -50,41 +30,9 @@ impl FromStr for ProjectType {
         match s.to_lowercase().as_str() {
             "client" => Ok(ProjectType::Client),
             "server" => Ok(ProjectType::Server),
-            "fullstack" => Ok(ProjectType::Fullstack),
+            "full" => Ok(ProjectType::Full),
             _ => Err(Error::InvalidOptions(format!(
                 "Type de projet invalide : {}",
-                s
-            ))),
-        }
-    }
-}
-
-impl FromStr for DatabaseType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "mysql" => Ok(DatabaseType::MySQL),
-            "postgresql" => Ok(DatabaseType::PostgreSQL),
-            "mariadb" => Ok(DatabaseType::MariaDB),
-            "mongodb" => Ok(DatabaseType::MongoDB),
-            _ => Err(Error::InvalidOptions(format!(
-                "Type de base de données invalide : {}",
-                s
-            ))),
-        }
-    }
-}
-
-impl FromStr for ServerType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "rest" => Ok(ServerType::Rest),
-            "graphql" => Ok(ServerType::GraphQL),
-            _ => Err(Error::InvalidOptions(format!(
-                "Type de serveur invalide : {}",
                 s
             ))),
         }
