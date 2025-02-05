@@ -14,8 +14,13 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    #[command(alias = "n", about = "Créer un nouveau projet")]
     New(NewArgs),
-    Generate(GenerateArgs),
+    #[command(alias = "g", about =" Générer un component")]
+    Generate {
+        #[command(subcommand)]
+        opts: GenerateArgs,
+    },
 }
 
 #[derive(Parser)]
@@ -23,13 +28,23 @@ pub struct NewArgs {
     pub name: String,
 
     #[arg(short = 't', long = "type", value_parser = clap::value_parser!(ProjectType))]
-    pub project_type: Option<ProjectType>,
+    pub opt: Option<ProjectType>,
 }
 
-#[derive(Parser)]
-pub struct GenerateArgs {
-    #[arg(value_parser = clap::value_parser!(FileType))]
-    pub file_type: FileType,
+#[derive(Subcommand)]
+pub enum GenerateArgs {
+    #[command(alias = "e")]
+    Entity {
+        name: String,
 
-    pub name: String,
+        #[arg(
+            long, 
+            help = "Fields in format: name:type|validation email:type|validation", 
+            num_args = 1..,
+            value_delimiter = ' '
+        )]
+        fields: Option<Vec<String>>,
+    },
+    #[command(alias = "h")]
+    Handler { name: String },
 }

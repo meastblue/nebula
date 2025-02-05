@@ -4,11 +4,11 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProjectType {
-    #[clap(alias = "client")]
-    Client,
+    #[clap(alias = "web")]
+    Web,
 
-    #[clap(alias = "server")]
-    Server,
+    #[clap(alias = "api")]
+    Api,
 
     #[clap(alias = "full")]
     Full,
@@ -28,13 +28,23 @@ impl FromStr for ProjectType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "client" => Ok(ProjectType::Client),
-            "server" => Ok(ProjectType::Server),
+            "web" => Ok(ProjectType::Web),
+            "api" => Ok(ProjectType::Api),
             "full" => Ok(ProjectType::Full),
             _ => Err(Error::InvalidOptions(format!(
                 "Type de projet invalide : {}",
                 s
             ))),
+        }
+    }
+}
+
+impl ProjectType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProjectType::Web => "web",
+            ProjectType::Api => "api",
+            ProjectType::Full => "full",
         }
     }
 }

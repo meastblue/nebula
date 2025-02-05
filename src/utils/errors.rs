@@ -27,4 +27,43 @@ pub enum Error {
 
     #[error("The generation of this element is not implemented yet.")]
     NotImplementedError(String),
+
+    #[error("Not a Nebula project directory")]
+    NotNebulaProject,
+
+    #[error("Invalid project structure")]
+    InvalidProjectStructure,
+
+    #[error("Invalid relation format: {0}")]
+    InvalidRelationFormat(String),
+
+    #[error("Invalid relation type: {0}")]
+    InvalidRelationType(String),
+
+    #[error("Invalid field format: {0}. Expected format: name:type|validation1 validation2")]
+    InvalidFieldFormat(String),
+
+    #[error("Missing type for field: {0}")]
+    MissingTypForField(String),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+
+    #[error("Invalid path: Path is not valid or cannot be processed")]
+    InvalidPath,
+
+    #[error("Template error: {0}")]
+    TemplateError(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Resource not found: {0}")]
+    ResourceNotFound(String),
 }

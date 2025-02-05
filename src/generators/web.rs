@@ -1,8 +1,8 @@
 use crate::utils::{errors::Error, file};
 
-pub struct ClientGenerator;
+pub struct WebGenerator;
 
-impl ClientGenerator {
+impl WebGenerator {
     pub fn generate(project_dir: &str) -> Result<(), Error> {
         let component = r#"
         fn main() {

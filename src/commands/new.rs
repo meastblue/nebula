@@ -1,7 +1,9 @@
+use std::fs;
 use std::path::Path;
 
 use crate::cli::NewArgs;
-use crate::generators::{client::ClientGenerator, server::ServerGenerator};
+use crate::generators::{api::ApiGenerator, web::WebGenerator};
+use crate::template;
 use crate::types::ProjectType;
 use crate::utils::errors::Error;
 use crate::utils::file::init_file_from_template;
@@ -13,34 +15,36 @@ impl NewCommand {
     pub fn run(args: NewArgs) -> Result<(), Error> {
         let project_name = args.name;
 
-        let project_type = match args.project_type {
-            Some(project_type) => project_type,
+        let project_type = match args.opt {
+            Some(opt) => opt,
             None => prompt::ask_project_type()?,
         };
 
         let project_dir = format!("./{}", &project_name);
 
         match project_type {
-            ProjectType::Client => {
-                ClientGenerator::generate(&project_dir)?;
+            ProjectType::Web => {
+                WebGenerator::generate(&project_dir)?;
             }
-            ProjectType::Server => {
-                ServerGenerator::new(&project_dir).generate()?;
+            ProjectType::Api => {
+                ApiGenerator::new(&project_dir).generate()?;
             }
             ProjectType::Full => {
-                let client_dir = format!("{}/client", &project_dir);
-                let server_dir = format!("{}/server", project_dir);
+                let web_dir = format!("{}/web", &project_dir);
+                let api_dir = format!("{}/api", project_dir);
 
                 file::create_dir_if_not_exists(&project_dir)?;
-                file::create_dir_if_not_exists(&server_dir)?;
-                file::create_dir_if_not_exists(&client_dir)?;
+                file::create_dir_if_not_exists(&api_dir)?;
+                file::create_dir_if_not_exists(&web_dir)?;
 
-                ServerGenerator::new(&server_dir).generate()?;
+                ApiGenerator::new(&api_dir).generate()?;
             }
         }
 
         Self::generate_env(&project_dir)?;
         Self::generate_gitignore(&project_dir)?;
+        Self::generate_nebula_config(&project_dir, project_type)?;
+        Self::generate_readme(&project_dir, &project_name)?;
 
         println!("Projet créé avec succès !");
         Ok(())
@@ -48,23 +52,59 @@ impl NewCommand {
 
     fn generate_env(dir: &str) -> Result<(), Error> {
         let project_path = Path::new(dir);
-        let template_path = "env.toml";
-        let file_path = ".env";
+        let project_name = project_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| Error::InvalidPath)?;
+        let content = template::get_env_template(project_name);
+        let env_path = project_path.join(".env");
 
-        println!("{:?}", &project_path);
+        fs::write(&env_path, &content).map_err(Error::FileSystem)?;
 
-        init_file_from_template(project_path, file_path, template_path, None)?;
-
+        println!("✅ Generated environment files");
         Ok(())
     }
 
     fn generate_gitignore(dir: &str) -> Result<(), Error> {
         let project_path = Path::new(dir);
-        let template_path = "gitignore.toml";
-        let file_path = ".gitignore";
+        let content = template::get_gitignore_template();
+        let env_path = project_path.join(".env");
 
-        init_file_from_template(project_path, file_path, template_path, None)?;
+        fs::write(&env_path, &content).map_err(Error::FileSystem)?;
 
+        println!("✅ Generated environment files");
+        Ok(())
+    }
+
+    fn generate_nebula_config(dir: &str, project_type: ProjectType) -> Result<(), Error> {
+        let project_path = Path::new(dir);
+        let project_name = project_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| Error::InvalidPath)?;
+
+        let content = template::get_nebula_template(
+            project_name,
+            project_type.as_str(),
+            "postgresql",
+            "rest",
+        );
+
+        let config_path = project_path.join("nebula.config.toml");
+        fs::write(&config_path, &content).map_err(Error::FileSystem)?;
+
+        println!("✅ Generated nebula configuration file");
+        Ok(())
+    }
+
+    fn generate_readme(dir: &str, project_name: &str) -> Result<(), Error> {
+        let project_path = Path::new(dir);
+        let content = template::get_readme_template(project_name);
+        let readme_path = project_path.join("README.md");
+
+        fs::write(&readme_path, &content).map_err(Error::FileSystem)?;
+
+        println!("✅ Generated README file");
         Ok(())
     }
 }

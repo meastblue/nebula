@@ -1,15 +1,14 @@
-use std::str::FromStr;
-
 use super::errors::Error;
 use crate::types::ProjectType;
 use inquire::{Select, Text};
 
 pub fn ask_project_type() -> Result<ProjectType, Error> {
-    let options = vec!["client", "server", "fullstack"];
-    let choice = Select::new("Quel type de projet voulez-vous créer ?", options)
+    const OPTIONS: &[&str] = &["web", "api", "full"];
+    Select::new("Quel type de projet voulez-vous créer ?", OPTIONS.to_vec())
+        .with_help_message("Choisissez le type de projet à créer")
         .prompt()
-        .map_err(|e| Error::InquireError(e))?;
-    ProjectType::from_str(&choice)
+        .map_err(Error::InquireError)?
+        .parse()  // Assuming ProjectType implements FromStr
 }
 
 // pub fn ask_database_type() -> Result<Option<DatabaseType>, Error> {

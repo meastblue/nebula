@@ -1,6 +1,0 @@
-content = """
-// Composant généré par Nebula
-fn main() {
-    println!("Hello, world!");
-}
-"""

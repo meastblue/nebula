@@ -1,8 +1,0 @@
-content = """
-// Routes générées par Nebula
-use actix_web::{web, HttpResponse};
-
-pub fn {{name}}_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/{{name}}", web::get().to(|| HttpResponse::Ok().body("Hello, {{name}}!")));
-}
-"""
