@@ -1,19 +1,24 @@
+use crate::{
+    template,
+    types::ProjectType,
+    utils::{self, errors::Error},
+};
 use colored::Colorize;
-
-use crate::template;
-use crate::types::ProjectType;
-use crate::utils::{self, errors::Error};
 use std::fs;
 
 #[derive(Debug, Clone)]
-enum RelationType {
+enum Relation {
     HasOne(String),
     HasMany(String),
     BelongsTo(String),
 }
 
+trait Validatable {
+    fn validate(&self) -> Result<(), Error>;
+}
+
 #[derive(Debug, Clone)]
-pub struct FieldValidation {
+pub struct FieldRules {
     required: bool,
     min_length: Option<usize>,
     max_length: Option<usize>,
@@ -25,7 +30,7 @@ pub struct FieldValidation {
     url: bool,
 }
 
-impl Default for FieldValidation {
+impl Default for FieldRules {
     fn default() -> Self {
         Self {
             required: false,
@@ -54,166 +59,140 @@ impl EntityGenerator {
     pub fn generate(&self) -> Result<(), Error> {
         utils::tools::check_is_nebula_project()?;
 
-        let parsed_fields = match &self.fields {
-            Some(fields) => Self::parse_fields_and_relations(fields.clone())?,
-            None => return Err(Error::InvalidOptions("Fields are required".to_string())),
+        let parsed = match &self.fields {
+            Some(fields) => Self::parse_fields(fields.clone())?,
+            None => return Err(Error::InvalidOptions("Fields required".into())),
         };
 
-        let (fields_str, relations) = parsed_fields;
-        let fields_str = fields_str
+        let (fields, relations) = parsed;
+        let fields_str = fields
             .iter()
             .map(|(name, type_, _)| format!("{}: {}", name, type_))
             .collect::<Vec<_>>()
             .join(", ");
-        let entity_content = template::get_entity_template(&self.name, &fields_str);
 
-        let project_config = utils::tools::get_project_config()?;
-        let entity_path = match project_config {
-            ProjectType::Api => "src/entities",
-            ProjectType::Full => "api/src/entities",
-            _ => return Err(Error::InvalidOptions("Invalid project type".to_string())),
-        };
+        let content = template::get_entity_template(&self.name, &fields_str);
+        let path = self.get_entity_path()?;
+        let filename = format!("{}.rs", self.name.to_lowercase());
 
-        let file_name = format!("{}.rs", self.name.to_lowercase());
-        utils::file::create_file_in_dir(entity_path, &file_name, &entity_content)?;
+        utils::file::create_file_in_dir(&path, &filename, &content)?;
 
         println!("✅ Generated entity: {}", self.name);
         Ok(())
     }
 
-    fn parse_fields_and_relations(
+    fn get_entity_path(&self) -> Result<String, Error> {
+        Ok(match utils::tools::get_project_config()? {
+            ProjectType::Api => "src/entities".into(),
+            ProjectType::Full => "api/src/entities".into(),
+            _ => return Err(Error::InvalidOptions("Invalid project type".into())),
+        })
+    }
+
+    fn parse_fields(
         fields: Vec<String>,
-    ) -> Result<(Vec<(String, String, FieldValidation)>, Vec<RelationType>), Error> {
-        let mut parsed_fields = vec![];
+    ) -> Result<(Vec<(String, String, FieldRules)>, Vec<Relation>), Error> {
+        let mut parsed = vec![];
         let mut relations = vec![];
 
         for field in fields {
-            let field_defs = field.split(',').collect::<Vec<_>>();
+            let defs = field.split(',').collect::<Vec<_>>();
 
-            for fdef in field_defs {
-                if fdef.contains("->") {
-                    let parts = fdef.split("->").collect::<Vec<_>>();
-
-                    if parts.len() != 2 {
-                        return Err(Error::InvalidRelationFormat(fdef.to_string()));
-                    }
-
-                    let relation_type = match parts[0].trim() {
-                        "hasOne" => RelationType::HasOne(parts[1].trim().to_string()),
-                        "hasMany" => RelationType::HasMany(parts[1].trim().to_string()),
-                        "belongsTo" => RelationType::BelongsTo(parts[1].trim().to_string()),
-                        _ => return Err(Error::InvalidRelationType(parts[0].trim().to_string())),
-                    };
-
-                    relations.push(relation_type);
+            for def in defs {
+                if def.contains("->") {
+                    Self::parse_relation(def, &mut relations)?;
                 }
 
-                if fdef.contains(":") {
-                    let parts = fdef.split(':').collect::<Vec<_>>();
-
-                    if parts.len() != 2 {
-                        return Err(Error::InvalidFieldFormat(fdef.to_string()));
-                    }
-
-                    let name = parts[0].trim().to_string();
-                    let type_and_validations: Vec<&str> = parts[1].split('|').collect();
-
-                    if type_and_validations.is_empty() {
-                        return Err(Error::MissingTypForField(name));
-                    }
-
-                    let field_type = type_and_validations[0].trim().to_string();
-                    Self::validate_field_type(&field_type)?;
-
-                    let mut validation = FieldValidation::default();
-
-                    if type_and_validations.len() > 1 {
-                        let validation_rules = type_and_validations[1]
-                            .split(|c| c == ' ')
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty())
-                            .collect::<Vec<_>>();
-
-                        Self::parse_validations(&mut validation, &validation_rules)?;
-                    }
-
-                    parsed_fields.push((name, field_type, validation));
+                if def.contains(":") {
+                    Self::parse_field(def, &mut parsed)?;
                 }
             }
         }
 
-        Ok((parsed_fields, relations))
+        Ok((parsed, relations))
     }
 
-    fn parse_validations(validation: &mut FieldValidation, rules: &[&str]) -> Result<(), Error> {
-        for rule in rules {
-            let rule = rule.trim();
-            if rule.is_empty() {
-                continue;
-            }
+    fn parse_relation(def: &str, relations: &mut Vec<Relation>) -> Result<(), Error> {
+        let parts: Vec<_> = def.split("->").collect();
 
-            let (rule_name, rule_value) = if let Some(idx) = rule.find('=') {
-                let (name, value) = rule.split_at(idx);
-                (name.trim(), Some(value[1..].trim()))
+        if parts.len() != 2 {
+            return Err(Error::InvalidRelationFormat(def.into()));
+        }
+
+        let relation = match parts[0].trim() {
+            "hasOne" => Relation::HasOne(parts[1].trim().into()),
+            "hasMany" => Relation::HasMany(parts[1].trim().into()),
+            "belongsTo" => Relation::BelongsTo(parts[1].trim().into()),
+            _ => return Err(Error::InvalidRelationType(parts[0].trim().into())),
+        };
+
+        relations.push(relation);
+        Ok(())
+    }
+
+    fn parse_field(def: &str, fields: &mut Vec<(String, String, FieldRules)>) -> Result<(), Error> {
+        let parts: Vec<_> = def.split(':').collect();
+
+        if parts.len() != 2 {
+            return Err(Error::InvalidFieldFormat(def.into()));
+        }
+
+        let name = parts[0].trim().into();
+        let type_rules: Vec<_> = parts[1].split('|').collect();
+
+        if type_rules.is_empty() {
+            return Err(Error::MissingTypForField(name));
+        }
+
+        let field_type = type_rules[0].trim().to_string();
+        Self::validate_field_type(&field_type)?;
+
+        let mut rules = FieldRules::default();
+
+        if type_rules.len() > 1 {
+            Self::parse_rules(&mut rules, &type_rules[1..])?;
+        }
+
+        fields.push((name, field_type, rules));
+        Ok(())
+    }
+
+    fn parse_rules(rules: &mut FieldRules, raw_rules: &[&str]) -> Result<(), Error> {
+        for rule in raw_rules.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            let (name, value) = if let Some(i) = rule.find('=') {
+                let (n, v) = rule.split_at(i);
+                (n.trim(), Some(&v[1..]))
             } else {
                 (rule, None)
             };
 
-            match rule_name {
-                "required" => validation.required = true,
-                "unique" => validation.unique = true,
-                "email" => validation.email = true,
-                "url" => validation.url = true,
+            match name {
+                "required" => rules.required = true,
+                "unique" => rules.unique = true,
+                "email" => rules.email = true,
+                "url" => rules.url = true,
                 "minLength" | "min_length" => {
-                    if let Some(value) = rule_value {
-                        let length = value.parse::<usize>().map_err(|_| {
-                            Error::ValidationError(format!("Invalid minLength value: {}", value))
-                        })?;
-                        validation.min_length = Some(length);
-                    } else {
-                        return Err(Error::ValidationError("minLength requires a value".into()));
-                    }
+                    rules.min_length = Self::parse_length(value, "minLength")?
                 }
                 "maxLength" | "max_length" => {
-                    if let Some(value) = rule_value {
-                        let length = value.parse::<usize>().map_err(|_| {
-                            Error::ValidationError(format!("Invalid maxLength value: {}", value))
-                        })?;
-                        validation.max_length = Some(length);
-                    } else {
-                        return Err(Error::ValidationError("maxLength requires a value".into()));
-                    }
+                    rules.max_length = Self::parse_length(value, "maxLength")?
                 }
-                "min" => {
-                    if let Some(value) = rule_value {
-                        validation.min = Some(value.to_string());
-                    } else {
-                        return Err(Error::ValidationError("min requires a value".into()));
-                    }
-                }
-                "max" => {
-                    if let Some(value) = rule_value {
-                        validation.max = Some(value.to_string());
-                    } else {
-                        return Err(Error::ValidationError("max requires a value".into()));
-                    }
-                }
-                "pattern" => {
-                    if let Some(value) = rule_value {
-                        validation.pattern = Some(value.to_string());
-                    } else {
-                        return Err(Error::ValidationError("pattern requires a value".into()));
-                    }
-                }
-                _ => {
-                    return Err(Error::ValidationError(format!(
-                        "Unknown validation rule: {}",
-                        rule_name
-                    )))
-                }
+                "min" => rules.min = value.map(String::from),
+                "max" => rules.max = value.map(String::from),
+                "pattern" => rules.pattern = value.map(String::from),
+                _ => return Err(Error::ValidationError(format!("Unknown rule: {}", name))),
             }
         }
         Ok(())
+    }
+
+    fn parse_length(value: Option<&str>, name: &str) -> Result<Option<usize>, Error> {
+        match value {
+            Some(v) => Ok(Some(v.parse().map_err(|_| {
+                Error::ValidationError(format!("Invalid {} value: {}", name, v))
+            })?)),
+            None => Err(Error::ValidationError(format!("{} needs value", name))),
+        }
     }
 
     fn validate_field_type(field_type: &str) -> Result<(), Error> {
@@ -234,121 +213,56 @@ impl EntityGenerator {
 
         if !valid_types.contains(&field_type) {
             return Err(Error::ValidationError(format!(
-                "Invalid type: {}. Valid types are: {}",
+                "Invalid type: {}. Valid types: {}",
                 field_type,
                 valid_types.join(", ")
             )));
         }
         Ok(())
     }
+}
 
-    fn generate_entity_content(
-        &self,
-        template: &str,
-        fields: &[(String, String, FieldValidation)],
-        relations: &[RelationType],
-    ) -> Result<String, Error> {
-        let mut content = template.to_string();
+impl FieldRules {
+    fn to_validation_attributes(&self) -> Vec<String> {
+        let mut attrs = Vec::new();
 
-        let fields_content = fields
-            .iter()
-            .map(|(name, type_, validation)| {
-                let mut validations = vec![];
-                if validation.required {
-                    validations.push("#[validate(required)]".to_string());
-                }
-                if validation.unique {
-                    validations.push("#[validate(custom = \"validate_unique\")]".to_string());
-                }
-                if validation.email {
-                    validations.push("#[validate(email)]".to_string());
-                }
-                if validation.url {
-                    validations.push("#[validate(url)]".to_string());
-                }
-                if let Some(min) = &validation.min {
-                    validations.push(format!("#[validate(range(min = \"{}\"))]", min));
-                }
-                if let Some(max) = &validation.max {
-                    validations.push(format!("#[validate(range(max = \"{}\"))]", max));
-                }
-                if let Some(min_length) = validation.min_length {
-                    validations.push(format!("#[validate(length(min = {}))]", min_length));
-                }
-                if let Some(max_length) = validation.max_length {
-                    validations.push(format!("#[validate(length(max = {}))]", max_length));
-                }
-                if let Some(pattern) = &validation.pattern {
-                    validations.push(format!("#[validate(regex(path = \"{}\"))]", pattern));
-                }
+        if self.required {
+            attrs.push("#[validate(required)]".into());
+        }
+        if self.unique {
+            attrs.push("#[validate(custom = \"validate_unique\")]".into());
+        }
+        if self.email {
+            attrs.push("#[validate(email)]".into());
+        }
+        if self.url {
+            attrs.push("#[validate(url)]".into());
+        }
 
-                format!(
-                    "    {}\n    pub {}: {}",
-                    validations.join("\n    "),
-                    name,
-                    type_
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",\n");
+        self.add_range_validations(&mut attrs);
+        self.add_length_validations(&mut attrs);
 
-        content = content.replace("{fields}", &fields_content);
-
-        // Replace placeholders for relations
-        let relations_content = relations
-            .iter()
-            .map(|relation| match relation {
-                RelationType::HasOne(target) => {
-                    format!("    pub {}: Option<{}>", target.to_lowercase(), target)
-                }
-                RelationType::HasMany(target) => {
-                    format!("    pub {}: Vec<{}>", target.to_lowercase(), target)
-                }
-                RelationType::BelongsTo(target) => {
-                    format!(
-                        "    pub {}_id: ID,\n    pub {}: Option<{}>",
-                        target.to_lowercase(),
-                        target.to_lowercase(),
-                        target
-                    )
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",\n");
-
-        content = content.replace("{relations}", &relations_content);
-
-        Ok(content)
+        if let Some(p) = &self.pattern {
+            attrs.push(format!("#[validate(regex(path = \"{}\"))]", p));
+        }
+        attrs
     }
 
-    fn update_entities_mod(&self, relations: &[RelationType]) -> Result<(), Error> {
-        let mod_path = "backend/src/entities/mod.rs";
-        let mut content = fs::read_to_string(mod_path).unwrap_or_else(|_| String::new());
-
-        let module_name = self.name.to_lowercase();
-        if !content.contains(&format!("pub mod {};", module_name)) {
-            content.push_str(&format!("pub mod {};\n", module_name));
-            content.push_str(&format!("pub use {}::{};\n", module_name, self.name));
+    fn add_range_validations(&self, attrs: &mut Vec<String>) {
+        if let Some(min) = &self.min {
+            attrs.push(format!("#[validate(range(min = \"{}\"))]", min));
         }
-
-        for relation in relations {
-            match relation {
-                RelationType::HasOne(target)
-                | RelationType::HasMany(target)
-                | RelationType::BelongsTo(target) => {
-                    if !content.contains(&format!("pub mod {};", target.to_lowercase())) {
-                        content.push_str(&format!("pub mod {};\n", target.to_lowercase()));
-                        content.push_str(&format!(
-                            "pub use {}::{};\n",
-                            target.to_lowercase(),
-                            target
-                        ));
-                    }
-                }
-            }
+        if let Some(max) = &self.max {
+            attrs.push(format!("#[validate(range(max = \"{}\"))]", max));
         }
+    }
 
-        fs::write(mod_path, content).map_err(|e| Error::FileSystem(e))?;
-        Ok(())
+    fn add_length_validations(&self, attrs: &mut Vec<String>) {
+        if let Some(min) = self.min_length {
+            attrs.push(format!("#[validate(length(min = {}))]", min));
+        }
+        if let Some(max) = self.max_length {
+            attrs.push(format!("#[validate(length(max = {}))]", max));
+        }
     }
 }
