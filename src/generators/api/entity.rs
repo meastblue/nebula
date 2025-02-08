@@ -3,8 +3,7 @@ use crate::{
     types::ProjectType,
     utils::{self, errors::Error},
 };
-use colored::Colorize;
-use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 enum Relation {
@@ -26,8 +25,6 @@ pub struct FieldRules {
     min: Option<String>,
     max: Option<String>,
     unique: bool,
-    email: bool,
-    url: bool,
 }
 
 impl Default for FieldRules {
@@ -40,9 +37,69 @@ impl Default for FieldRules {
             min: None,
             max: None,
             unique: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldValidator {
+    unique: bool,
+    email: bool,
+    url: bool,
+}
+
+impl Default for FieldValidator {
+    fn default() -> Self {
+        Self {
+            unique: false,
             email: false,
             url: false,
         }
+    }
+}
+
+pub struct EntityField {
+    name: String,
+    field_type: String,
+    validators: FieldValidator,
+}
+
+impl EntityField {
+    fn new(raw: &str) -> Result<Self, Error> {
+        let parts: Vec<&str> = raw.split('|').collect();
+        let (name, field_type) = Self::parse_name_type(parts[0])?;
+        let validators = Self::parse_validators(parts.get(1..).unwrap_or(&[]));
+
+        Ok(Self {
+            name,
+            field_type,
+            validators,
+        })
+    }
+
+    fn parse_name_type(raw: &str) -> Result<(String, String), Error> {
+        let parts: Vec<&str> = raw.split(':').collect();
+        match (parts.get(0), parts.get(1)) {
+            (Some(&name), Some(&type_)) => Ok((name.trim().to_string(), type_.trim().to_string())),
+            _ => Err(Error::InvalidOptions("Invalid field format".into())),
+        }
+    }
+
+    fn parse_validators(validators: &[&str]) -> FieldValidator {
+        let mut validator = FieldValidator::default();
+        for &v in validators {
+            match v {
+                "unique" => validator.unique = true,
+                "email" => validator.email = true,
+                "url" => validator.url = true,
+                _ => {}
+            }
+        }
+        validator
+    }
+
+    fn to_string(&self) -> String {
+        format!("{}: {}", self.name, self.field_type)
     }
 }
 
@@ -59,166 +116,74 @@ impl EntityGenerator {
     pub fn generate(&self) -> Result<(), Error> {
         utils::tools::check_is_nebula_project()?;
 
-        let parsed = match &self.fields {
-            Some(fields) => Self::parse_fields(fields.clone())?,
-            None => return Err(Error::InvalidOptions("Fields required".into())),
-        };
-
-        let (fields, relations) = parsed;
-        let fields_str = fields
-            .iter()
-            .map(|(name, type_, _)| format!("{}: {}", name, type_))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let content = template::get_entity_template(&self.name, &fields_str);
-        let path = self.get_entity_path()?;
-        let filename = format!("{}.rs", self.name.to_lowercase());
-
-        utils::file::create_file_in_dir(&path, &filename, &content)?;
+        let fields = self.parse_fields()?;
+        let content = self.generate_content(&fields)?;
+        self.write_entity_file(&content)?;
+        self.update_mod_file()?;
 
         println!("✅ Generated entity: {}", self.name);
         Ok(())
     }
 
-    fn get_entity_path(&self) -> Result<String, Error> {
-        Ok(match utils::tools::get_project_config()? {
-            ProjectType::Api => "src/entities".into(),
-            ProjectType::Full => "api/src/entities".into(),
+    fn parse_fields(&self) -> Result<Vec<EntityField>, Error> {
+        self.fields
+            .as_ref()
+            .ok_or_else(|| Error::InvalidOptions("Fields required".into()))?
+            .iter()
+            .map(|f| EntityField::new(f))
+            .collect()
+    }
+
+    fn generate_content(&self, fields: &[EntityField]) -> Result<String, Error> {
+        let fields_str = fields
+            .iter()
+            .map(EntityField::to_string)
+            .collect::<Vec<_>>()
+            .join(",\n    ");
+
+        Ok(template::get_entity_template(&self.name, &fields_str))
+    }
+
+    fn get_base_path(&self) -> Result<PathBuf, Error> {
+        let base = match utils::tools::get_project_config()? {
+            ProjectType::Api => "src/",
+            ProjectType::Full => "api/src/",
             _ => return Err(Error::InvalidOptions("Invalid project type".into())),
-        })
+        };
+        Ok(PathBuf::from(base))
     }
 
-    fn parse_fields(
-        fields: Vec<String>,
-    ) -> Result<(Vec<(String, String, FieldRules)>, Vec<Relation>), Error> {
-        let mut parsed = vec![];
-        let mut relations = vec![];
+    fn write_entity_file(&self, content: &str) -> Result<(), Error> {
+        let base_path = self.get_base_path()?;
+        let entity_dir = base_path.join(&self.name.to_lowercase());
+        std::fs::create_dir_all(&entity_dir).map_err(Error::FileSystem)?;
 
-        for field in fields {
-            let defs = field.split(',').collect::<Vec<_>>();
+        let entity_file = entity_dir.join("entity.rs");
+        std::fs::write(&entity_file, content).map_err(Error::FileSystem)?;
 
-            for def in defs {
-                if def.contains("->") {
-                    Self::parse_relation(def, &mut relations)?;
-                }
+        let mod_content = format!("mod entity;\npub use entity::*;\n");
+        let mod_file = entity_dir.join("mod.rs");
+        std::fs::write(&mod_file, mod_content).map_err(Error::FileSystem)?;
 
-                if def.contains(":") {
-                    Self::parse_field(def, &mut parsed)?;
-                }
+        Ok(())
+    }
+
+    fn update_mod_file(&self) -> Result<(), Error> {
+        let base_path = self.get_base_path()?;
+        let mod_path = base_path.join("mod.rs");
+        let mod_line = format!("pub mod {};", self.name.to_lowercase());
+
+        let content = if !mod_path.exists() {
+            mod_line
+        } else {
+            let mut existing = std::fs::read_to_string(&mod_path).map_err(Error::FileSystem)?;
+            if !existing.contains(&mod_line) {
+                existing.push_str(&format!("\n{}", mod_line));
             }
-        }
-
-        Ok((parsed, relations))
-    }
-
-    fn parse_relation(def: &str, relations: &mut Vec<Relation>) -> Result<(), Error> {
-        let parts: Vec<_> = def.split("->").collect();
-
-        if parts.len() != 2 {
-            return Err(Error::InvalidRelationFormat(def.into()));
-        }
-
-        let relation = match parts[0].trim() {
-            "hasOne" => Relation::HasOne(parts[1].trim().into()),
-            "hasMany" => Relation::HasMany(parts[1].trim().into()),
-            "belongsTo" => Relation::BelongsTo(parts[1].trim().into()),
-            _ => return Err(Error::InvalidRelationType(parts[0].trim().into())),
+            existing
         };
 
-        relations.push(relation);
-        Ok(())
-    }
-
-    fn parse_field(def: &str, fields: &mut Vec<(String, String, FieldRules)>) -> Result<(), Error> {
-        let parts: Vec<_> = def.split(':').collect();
-
-        if parts.len() != 2 {
-            return Err(Error::InvalidFieldFormat(def.into()));
-        }
-
-        let name = parts[0].trim().into();
-        let type_rules: Vec<_> = parts[1].split('|').collect();
-
-        if type_rules.is_empty() {
-            return Err(Error::MissingTypForField(name));
-        }
-
-        let field_type = type_rules[0].trim().to_string();
-        Self::validate_field_type(&field_type)?;
-
-        let mut rules = FieldRules::default();
-
-        if type_rules.len() > 1 {
-            Self::parse_rules(&mut rules, &type_rules[1..])?;
-        }
-
-        fields.push((name, field_type, rules));
-        Ok(())
-    }
-
-    fn parse_rules(rules: &mut FieldRules, raw_rules: &[&str]) -> Result<(), Error> {
-        for rule in raw_rules.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            let (name, value) = if let Some(i) = rule.find('=') {
-                let (n, v) = rule.split_at(i);
-                (n.trim(), Some(&v[1..]))
-            } else {
-                (rule, None)
-            };
-
-            match name {
-                "required" => rules.required = true,
-                "unique" => rules.unique = true,
-                "email" => rules.email = true,
-                "url" => rules.url = true,
-                "minLength" | "min_length" => {
-                    rules.min_length = Self::parse_length(value, "minLength")?
-                }
-                "maxLength" | "max_length" => {
-                    rules.max_length = Self::parse_length(value, "maxLength")?
-                }
-                "min" => rules.min = value.map(String::from),
-                "max" => rules.max = value.map(String::from),
-                "pattern" => rules.pattern = value.map(String::from),
-                _ => return Err(Error::ValidationError(format!("Unknown rule: {}", name))),
-            }
-        }
-        Ok(())
-    }
-
-    fn parse_length(value: Option<&str>, name: &str) -> Result<Option<usize>, Error> {
-        match value {
-            Some(v) => Ok(Some(v.parse().map_err(|_| {
-                Error::ValidationError(format!("Invalid {} value: {}", name, v))
-            })?)),
-            None => Err(Error::ValidationError(format!("{} needs value", name))),
-        }
-    }
-
-    fn validate_field_type(field_type: &str) -> Result<(), Error> {
-        let valid_types = [
-            "String",
-            "i32",
-            "i64",
-            "f32",
-            "f64",
-            "bool",
-            "DateTime",
-            "Vec<String>",
-            "Option<String>",
-            "u32",
-            "u64",
-            "usize",
-        ];
-
-        if !valid_types.contains(&field_type) {
-            return Err(Error::ValidationError(format!(
-                "Invalid type: {}. Valid types: {}",
-                field_type,
-                valid_types.join(", ")
-            )));
-        }
-        Ok(())
+        std::fs::write(mod_path, content).map_err(Error::FileSystem)
     }
 }
 
@@ -231,12 +196,6 @@ impl FieldRules {
         }
         if self.unique {
             attrs.push("#[validate(custom = \"validate_unique\")]".into());
-        }
-        if self.email {
-            attrs.push("#[validate(email)]".into());
-        }
-        if self.url {
-            attrs.push("#[validate(url)]".into());
         }
 
         self.add_range_validations(&mut attrs);
