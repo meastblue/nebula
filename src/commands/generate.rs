@@ -12,9 +12,10 @@ impl GenerateCommand {
                 fields,
                 relations,
             } => {
-                let fields = fields.map(|f| f.split(',').map(|s| s.to_string()).collect());
-                let relations = relations.map(|r| r.split(',').map(|s| s.to_string()).collect());
-                EntityGenerator::new(name, fields, relations).generate()
+                let parsed_fields = fields.map(|f| f.split(',').map(|s| s.to_string()).collect());
+                let parsed_relations =
+                    relations.map(|r| r.split(',').map(|s| s.to_string()).collect());
+                EntityGenerator::new(name, parsed_fields, parsed_relations).generate()
             }
             GenerateArgs::Handler { name } => unimplemented!(),
         }
