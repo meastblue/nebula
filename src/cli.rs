@@ -2,10 +2,17 @@ use crate::types::{FileType, ProjectType};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "nebula")]
 #[command(
-    about = "Un CLI pour générer des projets et fichiers en Rust.",
-    version = "1.0.0"
+    name = "nebula",
+    version = "1.0.0",
+    about = "CLI for generating Rust projects and components",
+    long_about = r#"
+Nebula - Outil de productivité pour projets Rust
+
+Exemples:
+  Créer un projet API : nebula new mon-projet --type api
+  Générer une entité   : nebula generate entity -e User -f "name:String|required,email:String|unique" -r "posts:has_many:Post"
+"#
 )]
 pub struct Cli {
     #[command(subcommand)]
