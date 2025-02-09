@@ -219,7 +219,7 @@ use chrono::{{DateTime, Utc}};
 pub struct {name} {{
     #[serde(default)]
     pub id: i32,
-    {fields},
+    {fields}
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>
 }}

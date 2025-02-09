@@ -41,9 +41,13 @@ pub struct EntityField {
     validators: FieldValidator,
 }
 
-impl fmt::Display for EntityField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.field_type)
+impl std::fmt::Display for EntityField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name, self.field_type)?;
+        if !self.validators.custom_rules.is_empty() {
+            write!(f, " [{}]", self.validators.custom_rules.join(", "))?;
+        }
+        Ok(())
     }
 }
 
@@ -154,7 +158,7 @@ impl EntityGenerator {
     fn generate_content(&self, fields: &[EntityField]) -> Result<String, Error> {
         let fields_repr = fields
             .iter()
-            .map(|f| format!("{},", f.to_string()))
+            .map(|f| format!("    {},", f))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -205,12 +209,6 @@ impl Validatable for EntityGenerator {
         if self.name.is_empty() || !self.name.chars().all(|c| c.is_alphanumeric()) {
             return Err(Error::ValidationError(
                 "Entity name must be alphanumeric".into(),
-            ));
-        }
-
-        if self.fields.as_ref().map(|f| f.is_empty()).unwrap_or(true) {
-            return Err(Error::ValidationError(
-                "At least one field is required".into(),
             ));
         }
 
