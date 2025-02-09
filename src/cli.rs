@@ -16,7 +16,7 @@ pub struct Cli {
 pub enum Commands {
     #[command(alias = "n", about = "Créer un nouveau projet")]
     New(NewArgs),
-    #[command(alias = "g", about =" Générer un component")]
+    #[command(alias = "g", about = "Générer un component")]
     Generate {
         #[command(subcommand)]
         opts: GenerateArgs,
@@ -38,12 +38,20 @@ pub enum GenerateArgs {
         name: String,
 
         #[arg(
-            long, 
-            help = "Fields in format: name:type|validation email:type|validation", 
-            num_args = 1..,
-            value_delimiter = ' '
+            long = "fields",
+            short = 'f',
+            help = "Fields in format: name|type|validation,name|type|validation",
+            num_args = 1
         )]
-        fields: Option<Vec<String>>,
+        fields: Option<String>,
+
+        #[arg(
+            long = "relations",
+            short = 'r',
+            help = "Relations in format: name:has_one:entity_name,name:has_many:entity_name",
+            num_args = 1
+        )]
+        relations: Option<String>,
     },
     #[command(alias = "h")]
     Handler { name: String },

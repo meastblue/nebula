@@ -3,7 +3,7 @@ use crate::{
     types::ProjectType,
     utils::{self, errors::Error},
 };
-use std::{fmt, iter, path::PathBuf};
+use std::{iter, path::PathBuf};
 
 #[derive(Debug, Clone)]
 enum Relation {
@@ -30,8 +30,6 @@ pub struct FieldRules {
 #[derive(Debug, Clone, Default)]
 pub struct FieldValidator {
     unique: bool,
-    email: bool,
-    url: bool,
     custom_rules: Vec<String>,
 }
 
@@ -39,6 +37,7 @@ pub struct EntityField {
     name: String,
     field_type: String,
     validators: FieldValidator,
+    relation: Option<Relation>,
 }
 
 impl std::fmt::Display for EntityField {
@@ -53,7 +52,8 @@ impl std::fmt::Display for EntityField {
 
 pub struct EntityGenerator {
     name: String,
-    fields: Option<Vec<String>>,
+    fields: Option<String>,
+    relations: Option<String>,
 }
 
 impl EntityField {
@@ -62,29 +62,56 @@ impl EntityField {
         let name_type = parts
             .next()
             .ok_or(Error::InvalidOptions("Empty field".into()))?;
-        let (name, field_type) = Self::parse_name_type(name_type)?;
+
+        let (name, field_type) = if name_type.contains(':') {
+            let mut name_type_parts = name_type.splitn(2, ':');
+            match (name_type_parts.next(), name_type_parts.next()) {
+                (Some(name), Some(typ)) => (name.trim().to_string(), typ.trim().to_string()),
+                _ => {
+                    return Err(Error::InvalidOptions(format!(
+                        "Invalid field format: '{}'",
+                        name_type
+                    )))
+                }
+            }
+        } else {
+            let mut name_type_parts = name_type.splitn(2, '|');
+            match (name_type_parts.next(), name_type_parts.next()) {
+                (Some(name), Some(typ)) => (name.trim().to_string(), typ.trim().to_string()),
+                _ => {
+                    return Err(Error::InvalidOptions(format!(
+                        "Invalid field format: '{}'",
+                        name_type
+                    )))
+                }
+            }
+        };
 
         let validators = parts
             .next()
             .map(|s| s.split('|').collect::<Vec<_>>())
             .unwrap_or_default();
 
+        let relation = if field_type.starts_with("has_one:") {
+            Some(Relation::HasOne(field_type["has_one:".len()..].to_string()))
+        } else if field_type.starts_with("has_many:") {
+            Some(Relation::HasMany(
+                field_type["has_many:".len()..].to_string(),
+            ))
+        } else if field_type.starts_with("belongs_to:") {
+            Some(Relation::BelongsTo(
+                field_type["belongs_to:".len()..].to_string(),
+            ))
+        } else {
+            None
+        };
+
         Ok(Self {
             name,
             field_type,
             validators: Self::parse_validators(&validators)?,
+            relation,
         })
-    }
-
-    fn parse_name_type(raw: &str) -> Result<(String, String), Error> {
-        let mut parts = raw.splitn(2, ':');
-        match (parts.next(), parts.next()) {
-            (Some(name), Some(typ)) => Ok((name.trim().to_string(), typ.trim().to_string())),
-            _ => Err(Error::InvalidOptions(format!(
-                "Invalid field format: '{}'",
-                raw
-            ))),
-        }
     }
 
     fn parse_validators(rules: &[&str]) -> Result<FieldValidator, Error> {
@@ -92,8 +119,6 @@ impl EntityField {
         for rule in rules {
             match *rule {
                 "unique" => validator.unique = true,
-                "email" => validator.email = true,
-                "url" => validator.url = true,
                 custom => validator.custom_rules.push(custom.to_string()),
             }
         }
@@ -102,9 +127,19 @@ impl EntityField {
 
     fn to_rust_code(&self) -> String {
         let mut code = Vec::new();
+
         let attrs = self.validators.to_validation_attributes();
         code.extend(attrs.into_iter().map(|a| format!("    {}", a)));
-        code.push(format!("    pub {}: {},", self.name, self.field_type));
+
+        let field_type = match &self.relation {
+            Some(Relation::HasOne(target)) => format!("Option<{}>", target),
+            Some(Relation::HasMany(target)) => format!("Vec<{}>", target),
+            Some(Relation::BelongsTo(target)) => target.clone(),
+            None => self.field_type.clone(),
+        };
+
+        code.push(format!("    pub {}: {},", self.name, field_type));
+
         code.join("\n")
     }
 }
@@ -114,12 +149,6 @@ impl FieldValidator {
         let mut attrs = Vec::new();
         if self.unique {
             attrs.push("#[validate(custom = \"validate_unique\")]".into());
-        }
-        if self.email {
-            attrs.push("#[validate(email)]".into());
-        }
-        if self.url {
-            attrs.push("#[validate(url)]".into());
         }
         attrs.extend(
             self.custom_rules
@@ -131,15 +160,20 @@ impl FieldValidator {
 }
 
 impl EntityGenerator {
-    pub fn new(name: String, fields: Option<Vec<String>>) -> Self {
-        Self { name, fields }
+    pub fn new(name: String, fields: Option<String>, relations: Option<String>) -> Self {
+        Self {
+            name,
+            fields,
+            relations,
+        }
     }
 
     pub fn generate(&self) -> Result<(), Error> {
         self.validate()?;
         utils::tools::check_is_nebula_project()?;
         let fields = self.parse_fields()?;
-        let content = self.generate_content(&fields)?;
+        let relations = self.parse_relations()?;
+        let content = self.generate_content(&fields, &relations)?;
         self.write_entity_file(&content)?;
         self.update_mod_file()?;
         println!("✅ Generated entity: {}", self.name);
@@ -147,20 +181,39 @@ impl EntityGenerator {
     }
 
     fn parse_fields(&self) -> Result<Vec<EntityField>, Error> {
-        self.fields
-            .as_ref()
-            .into_iter()
-            .flatten()
-            .map(|field_str| EntityField::new(field_str))
-            .collect()
+        match &self.fields {
+            Some(fields) if !fields.is_empty() => fields
+                .split(',')
+                .map(|field_str| EntityField::new(field_str))
+                .collect(),
+            _ => Ok(Vec::new()),
+        }
     }
 
-    fn generate_content(&self, fields: &[EntityField]) -> Result<String, Error> {
-        let fields_repr = fields
-            .iter()
-            .map(|f| format!("    {},", f))
-            .collect::<Vec<_>>()
-            .join("\n");
+    fn parse_relations(&self) -> Result<Vec<EntityField>, Error> {
+        match &self.relations {
+            Some(relations) if !relations.is_empty() => relations
+                .split(',')
+                .map(|relation_str| EntityField::new(relation_str))
+                .collect(),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn generate_content(
+        &self,
+        fields: &[EntityField],
+        relations: &[EntityField],
+    ) -> Result<String, Error> {
+        let fields_repr = if !fields.is_empty() || !relations.is_empty() {
+            let all_fields = fields.iter().chain(relations.iter());
+            all_fields
+                .map(|f| f.to_rust_code())
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            "// Add your fields here".to_string()
+        };
 
         Ok(template::get_entity_template(&self.name, &fields_repr))
     }
@@ -208,8 +261,24 @@ impl Validatable for EntityGenerator {
     fn validate(&self) -> Result<(), Error> {
         if self.name.is_empty() || !self.name.chars().all(|c| c.is_alphanumeric()) {
             return Err(Error::ValidationError(
-                "Entity name must be alphanumeric".into(),
+                "Entity name must be non-empty and alphanumeric".into(),
             ));
+        }
+
+        if let Some(fields) = &self.fields {
+            if fields.split(',').any(|f| f.trim().is_empty()) {
+                return Err(Error::ValidationError(
+                    "Field definitions cannot be empty".into(),
+                ));
+            }
+        }
+
+        if let Some(relations) = &self.relations {
+            if relations.split(',').any(|r| r.trim().is_empty()) {
+                return Err(Error::ValidationError(
+                    "Relation definitions cannot be empty".into(),
+                ));
+            }
         }
 
         Ok(())

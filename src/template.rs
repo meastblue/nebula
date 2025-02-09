@@ -215,23 +215,49 @@ use async_graphql::{{SimpleObject, InputObject}};
 use validator::Validate;
 use chrono::{{DateTime, Utc}};
 
-#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, SimpleObject, Validate, Default)]
 pub struct {name} {{
     #[serde(default)]
     pub id: i32,
-    {fields}
+{fields}
     pub created_at: Option<DateTime<Utc>>,
-    pub updated_at: Option<DateTime<Utc>>
+    pub updated_at: Option<DateTime<Utc>>,
+}}
+
+impl {name} {{
+    pub fn new() -> Self {{
+        Self::default()
+    }}
+
+    pub fn create(&self) -> Result<(), String> {{
+        Ok(())
+    }}
+
+    pub fn update(&self) -> Result<(), String> {{
+        Ok(())
+    }}
+
+    pub fn delete(&self) -> Result<(), String> {{
+        Ok(())
+    }}
+
+    pub fn destroy(&self) -> Result<(), String> {{
+        Ok(())
+    }}
+
+    pub fn find_by_id(id: i32) -> Result<Self, String> {{
+        Ok(Self::new())
+    }}
 }}
 
 #[derive(InputObject, Validate)]
 pub struct {name}Input {{
-    {fields}
+{fields}
 }}
 
 #[derive(InputObject)]
 pub struct Update{name}Input {{
-    {fields}
+{fields}
 }}"#,
         name = name,
         fields = fields
